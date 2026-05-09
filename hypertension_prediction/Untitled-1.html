@@ -1,0 +1,199 @@
+import Float "mo:core/Float";
+import Array "mo:core/Array";
+import Int "mo:core/Int";
+import Nat "mo:core/Nat";
+import Time "mo:core/Time";
+import Text "mo:core/Text";
+import Order "mo:core/Order";
+import Map "mo:core/Map";
+import Runtime "mo:core/Runtime";
+
+actor {
+  module AssessmentResult {
+    public func compareByTimestamp(a : AssessmentResult, b : AssessmentResult) : Order.Order {
+      Int.compare(b.timestamp, a.timestamp);
+    };
+  };
+
+  type PatientInput = {
+    systolicBP : Nat;
+    diastolicBP : Nat;
+    age : Nat;
+    bmi : Float;
+    heartRate : Nat;
+    cholesterol : Nat;
+    glucose : Nat;
+    isSmoker : Bool;
+    drinksAlcohol : Bool;
+    isPhysicallyActive : Bool;
+    hasFamilyHistory : Bool;
+    hasHeadache : Bool;
+    hasDizziness : Bool;
+    hasChestPain : Bool;
+    hasBlurredVision : Bool;
+    onMedication : Bool;
+    patientName : Text;
+  };
+
+  type HypertensionStage = {
+    #Normal;
+    #Elevated;
+    #Stage1;
+    #Stage2;
+    #HypertensiveCrisis;
+  };
+
+  type AssessmentResult = {
+    stage : HypertensionStage;
+    riskScore : Float;
+    recommendations : [Text];
+    timestamp : Int;
+    id : Nat;
+    patientName : Text;
+    systolicBP : Nat;
+    diastolicBP : Nat;
+  };
+
+  let assessments = Map.empty<Nat, AssessmentResult>();
+  var nextId = 0;
+
+  func classifyHypertensionStage(systolic : Nat, diastolic : Nat) : HypertensionStage {
+    let systolicFloat = systolic.toFloat();
+    let diastolicFloat = diastolic.toFloat();
+
+    if (systolicFloat < 120 and diastolicFloat < 80) {
+      #Normal;
+    } else if (systolicFloat >= 120 and systolicFloat <= 129 and diastolicFloat < 80) {
+      #Elevated;
+    } else if (
+      (systolicFloat >= 130 and systolicFloat <= 139) or (diastolicFloat >= 80 and diastolicFloat <= 89)
+    ) {
+      #Stage1;
+    } else if (systolicFloat >= 140 or diastolicFloat >= 90) {
+      #Stage2;
+    } else if (systolicFloat > 180 or diastolicFloat > 120) {
+      #HypertensiveCrisis;
+    } else {
+      #Normal;
+    };
+  };
+
+  func calculateRiskScore(input : PatientInput) : Float {
+    var score : Float = 0;
+
+    // BP values (40%)
+    if (input.systolicBP > 120 or input.diastolicBP > 80) {
+      score += 0.4 * (input.systolicBP.toFloat() - 120);
+      score += 0.4 * (input.diastolicBP.toFloat() - 80);
+    };
+
+    // age (15%)
+    score += 0.15 * (input.age.toFloat() - 18);
+
+    // BMI (15%)
+    if (input.bmi > 25) {
+      score += 0.15 * (input.bmi - 25);
+    };
+
+    // smoking (10%)
+    if (input.isSmoker) {
+      score += 10;
+    };
+
+    // cholesterol (10%)
+    if (input.cholesterol > 200) {
+      score += 0.1 * (input.cholesterol.toFloat() - 200);
+    };
+
+    // lifestyle factors (10%)
+    if (input.drinksAlcohol or not input.isPhysicallyActive or input.hasFamilyHistory) {
+      score += 10;
+    };
+
+    // Clamp score between 0 and 100
+    if (score > 100) { 100 } else if (score < 0) { 0 } else { score };
+  };
+
+  func getRecommendations(stage : HypertensionStage, input : PatientInput) : [Text] {
+    let baseRecommendations : [Text] = [
+      "Maintain a healthy weight",
+      "Reduce salt intake",
+      "Exercise regularly",
+      "Limit alcohol consumption",
+      "Quit smoking",
+      "Monitor blood pressure regularly",
+    ];
+
+    let stageSpecific : [Text] = switch (stage) {
+      case (#Elevated) {
+        ["Monitor blood pressure more frequently", "Consider lifestyle changes"];
+      };
+      case (#Stage1) {
+        ["Consult your doctor for medication options", "Increase physical activity"];
+      };
+      case (#Stage2) {
+        ["Medication is likely necessary", "Follow a strict low-sodium diet"];
+      };
+      case (#HypertensiveCrisis) {
+        ["Seek immediate medical attention", "This is a medical emergency"];
+      };
+      case (#Normal) {
+        [];
+      };
+    };
+
+    let symptomFlag : [Text] = if (input.hasHeadache or input.hasDizziness or input.hasChestPain or input.hasBlurredVision) {
+      ["Monitor symptoms closely and report any changes to your doctor"];
+    } else { [] };
+
+    let recommendations = baseRecommendations.concat(stageSpecific).concat(symptomFlag);
+    recommendations;
+  };
+
+  func getCurrentTime() : Int {
+    Time.now();
+  };
+
+  public shared ({ caller }) func submitAssessment(input : PatientInput) : async AssessmentResult {
+    let stage = classifyHypertensionStage(input.systolicBP, input.diastolicBP);
+    let riskScore = calculateRiskScore(input);
+    let recommendations = getRecommendations(stage, input);
+    let timestamp = getCurrentTime();
+    let id = nextId;
+
+    let result : AssessmentResult = {
+      stage;
+      riskScore;
+      recommendations;
+      timestamp;
+      id;
+      patientName = input.patientName;
+      systolicBP = input.systolicBP;
+      diastolicBP = input.diastolicBP;
+    };
+
+    assessments.add(id, result);
+    nextId += 1;
+    result;
+  };
+
+  public query ({ caller }) func getAssessmentHistory() : async [AssessmentResult] {
+    assessments.values().toArray().sort(AssessmentResult.compareByTimestamp);
+  };
+
+  public query ({ caller }) func getAssessmentById(id : Nat) : async AssessmentResult {
+    switch (assessments.get(id)) {
+      case (null) {
+        Runtime.trap("Assessment not found");
+      };
+      case (?assessment) {
+        assessment;
+      };
+    };
+  };
+
+  public shared ({ caller }) func clearHistory() : async () {
+    assessments.clear();
+    nextId := 0;
+  };
+};

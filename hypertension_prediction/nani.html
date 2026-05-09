@@ -1,0 +1,42 @@
+
+
+module.exports = mongoose.model("Candidate", candidateSchema);
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Login</title>
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<h2>Online Voting Login</h2>
+
+<input id="username" placeholder="Username">
+
+
+
+// VOTE
+function vote(candidateId) {
+
+    fetch("/vote", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+            userId: userId,
+            candidateId: candidateId
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+
+        alert(data.message);
+        window.location = "result.html";
+
+    });
+
+}
+
+
+
